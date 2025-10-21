@@ -15,6 +15,7 @@ import { setItem } from "../services";
 import { FlashMessageComponent } from "../ui/useable-components";
 import { ROUTES } from "../utils/constants";
 import { IStoreLoginCompleteResponse } from "../utils/interfaces/auth.interface";
+import { signInVendor, getVendorProfile } from "../supabase";
 
 const useLogin = () => {
   const [creds, setCreds] = useState({ username: "", password: "" });
@@ -69,8 +70,8 @@ const useLogin = () => {
   }
 
   const onLogin = async (username: string, password: string) => {
-    console.log("🚀 ~ onLogin called with:", { username, password: "***" });
-    
+    console.log("🚀 ~ onLogin SUPABASE called with:", { username, password: "***" });
+
     try {
       setIsLoading(true);
 
@@ -79,88 +80,32 @@ const useLogin = () => {
         throw new Error("Username and password are required");
       }
 
-      // Get notification permissions
-      const settings = await Notifications.getPermissionsAsync();
-      let notificationPermissions = { ...settings };
-      console.log("🚀 ~ Notification permissions:", { notificationPermissions, isDevice: Device.isDevice });
+      // ✅ USAR SUPABASE EN LUGAR DE GRAPHQL
+      const data = await signInVendor(username, password);
+      console.log("✅ Supabase login successful:", data.user.email);
 
-      // Request notification permissions if not granted or not provisional on iOS
-      if (
-        settings?.status !== "granted" ||
-        (settings.ios && settings.ios?.status !== Notifications.IosAuthorizationStatus.PROVISIONAL)
-      ) {
-        console.log("🚀 ~ Requesting notification permissions...");
-        notificationPermissions = await Notifications.requestPermissionsAsync({
-          ios: {
-            allowProvisional: true,
-            allowAlert: true,
-            allowBadge: true,
-            allowSound: true,
-          },
-        });
-        console.log("🚀 ~ New notification permissions:", notificationPermissions);
-      }
+      // Obtener perfil del vendor con sus restaurantes
+      const profile = await getVendorProfile();
+      console.log("✅ Vendor profile:", profile);
 
-      let notificationToken = null;
-      
-      // Get notification token if permissions are granted and it's a device
-      if (
-        (notificationPermissions?.status === "granted" ||
-          (notificationPermissions.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL)) &&
-        Device.isDevice
-      ) {
-        try {
-          console.log("🚀 ~ Getting push token...");
-          const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-          console.log("🚀 ~ Project ID:", projectId);
-          
-          if (projectId) {
-            // const tokenResult = await Notifications.getExpoPushTokenAsync({
-            //   projectId: projectId,
-            // });
-            const tokenResult =  (await Notifications.getDevicePushTokenAsync());
-            notificationToken = tokenResult.data;
-            console.log("🚀 ~ Got push token:", notificationToken);
-          } else {
-            console.warn("🚀 ~ No project ID found, skipping push token");
-          }
-        } catch (tokenError) {
-          console.warn("🚀 ~ Failed to get push token:", tokenError);
-          // Continue without token - don't fail the login
-        }
-      }
-
-      console.log("🚀 ~ Performing login mutation...");
-      
-      // Perform mutation with the obtained data
-      const { data } = await login({
-        variables: {
-          username: username,
-          password: password,
-          notificationToken: notificationToken,
-        },
-      });
-
-      console.log("🚀 ~ Login mutation result:", data);
-
-      // FIX: Check data first, then storeLoginData
-      const restaurantId = data?.restaurantLogin?.restaurantId || storeLoginData?.restaurantLogin?.restaurantId;
-      
-      if (restaurantId) {
+      if (profile.restaurants && profile.restaurants.length > 0) {
+        const restaurantId = profile.restaurants[0].id;
         await AsyncStorage.setItem("store-id", restaurantId);
-        console.log("🚀 ~ Stored restaurant ID:", restaurantId);
+        await setTokenAsync(data.session?.access_token || '');
+        console.log("✅ Stored restaurant ID:", restaurantId);
+
+        setIsLoading(false);
+        router.replace(ROUTES.home as Href);
+      } else {
+        throw new Error("No restaurants found for this vendor");
       }
 
-    } catch (err) {
-      console.error("🚀 ~ Login error:", err);
+    } catch (err: any) {
+      console.error("❌ Login error:", err);
       setIsLoading(false);
-      
-      const error = err as ApolloError;
+
       FlashMessageComponent({
-        message:
-          error?.graphQLErrors?.[0]?.message ??
-          error?.networkError?.message ??
-          "Something went wrong",
+        message: err?.message || "Error al iniciar sesión. Verifica tus credenciales.",
       });
     }
   };

@@ -33,7 +33,11 @@
           "photosPermission": "The app accesses your photos for license, vehicle plate and profile image. Please allow these to continue using the app."
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-font",
+      "expo-localization",
+      "expo-secure-store",
+      "expo-web-browser"
     ],
     "platforms": [
       "ios",
